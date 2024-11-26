@@ -6,6 +6,6 @@ license = "Apache-2.0"
 
 authors = ["shenxu"]
 description = "这是一个跟java ThreadPoolExecutor线程池 使用方式基本相同的线程池"
-repository = ""
-
-[dependencies]
+repository = "https://github.com/shenxushenxu/threadpool.git"
+keywords = ["threadpool", "java-threadpool", "pool", "thread"]
+categories = ["accessibility", "asynchronous","config"]
