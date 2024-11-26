@@ -1,0 +1,11 @@
+[package]
+name = "java-threadpool"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+authors = ["shenxu"]
+description = "这是一个跟java ThreadPoolExecutor线程池 使用方式基本相同的线程池"
+repository = ""
+
+[dependencies]
