@@ -25,6 +25,11 @@ type Job = Box<dyn Fn() + Send + 'static>;
 
 impl ThreadPool {
     pub fn new(core_pool_size: usize, maximum_pool_size: usize, maximum_queue: usize) -> Self {
+
+        assert!(maximum_pool_size > core_pool_size);
+        assert!(maximum_queue > (core_pool_size + maximum_pool_size));
+
+
         let (sync_sender, receiver) = mpsc::sync_channel::<Message>(maximum_queue);
 
         let arc_mutex_receiver = Arc::new(Mutex::new(receiver));
@@ -44,18 +49,16 @@ impl ThreadPool {
                     let mut non_thread_size = NON_CORE_THREAD.lock().unwrap();
 
                     if (*thread_size) > core_pool_size && (*non_thread_size) < (maximum_pool_size - core_pool_size) {
-
                         drop(thread_size);
 
                         let non_receiver = Arc::clone(&arc_mutex_receiver);
 
                         // Executor::new_thread(Arc::clone(&arc_mutex_receiver));
                         let mute = non_receiver.try_lock();
-                        match mute{
+                        match mute {
                             Ok(rece) => {
                                 match rece.try_recv() {
                                     Ok(message) => {
-
                                         drop(rece);
 
                                         match message {
@@ -70,18 +73,17 @@ impl ThreadPool {
 
                                                         let mut non_thread_size = NON_CORE_THREAD.lock().unwrap();
                                                         (*non_thread_size) = (*non_thread_size) - 1;
-
                                                     }
                                                 });
-                                            },
+                                            }
 
-                                            Message::Break => {break}
+                                            Message::Break => { break }
                                         }
-                                    },
+                                    }
 
                                     Err(e) => ()
                                 }
-                            },
+                            }
                             Err(e) => ()
                         }
                         (*non_thread_size) += 1;
@@ -119,20 +121,17 @@ impl ThreadPool {
     }
 
 
-    pub fn shutdown(&self){
-        for _ in 0..(self.core_pool_size+1) {
+    pub fn shutdown(&self) {
+        for _ in 0..(self.core_pool_size + 1) {
             self.sync_sender.send(Message::Break).unwrap();
         }
     }
-
-
 }
 
 impl Drop for ThreadPool {
     fn drop(&mut self) {
-        for _ in 0..(self.core_pool_size+1) {
+        for _ in 0..(self.core_pool_size + 1) {
             self.sync_sender.send(Message::Break).unwrap();
-
         }
     }
 }
