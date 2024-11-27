@@ -15,17 +15,17 @@ use Future_rs::Future;
 static mut CORS_THREAD: Mutex<usize> = Mutex::new(0);
 static mut NON_CORE_THREAD: Mutex<usize> = Mutex::new(0);
 pub struct ThreadPool {
-    sync_sender: Sender<Message>,
+    sync_sender: SyncSender<Message>,
     core_pool_size: usize,
     maximum_pool_size: usize,
-    keep_alive_time: usize,
+    maximum_queue: usize,
 }
 
 type Job = Box<dyn Fn() + Send + 'static>;
 
 impl ThreadPool {
-    pub fn new(core_pool_size: usize, maximum_pool_size: usize, keep_alive_time: usize) -> Self {
-        let (sync_sender, receiver) = mpsc::channel::<Message>();
+    pub fn new(core_pool_size: usize, maximum_pool_size: usize, maximum_queue: usize) -> Self {
+        let (sync_sender, receiver) = mpsc::sync_channel::<Message>(maximum_queue);
 
         let arc_mutex_receiver = Arc::new(Mutex::new(receiver));
 
@@ -94,7 +94,7 @@ impl ThreadPool {
             sync_sender: sync_sender,
             core_pool_size: core_pool_size,
             maximum_pool_size: maximum_pool_size,
-            keep_alive_time: keep_alive_time,
+            maximum_queue: maximum_queue,
         };
     }
 
