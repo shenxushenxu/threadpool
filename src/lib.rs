@@ -5,30 +5,35 @@ pub use ThreadPool_rs::Future_rs::Future;
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::sync::{LazyLock, Mutex};
     use super::*;
-
+    static mut CORS_THREAD: LazyLock<Mutex<RefCell<usize>>> = std::sync::LazyLock::new(|| {
+        return Mutex::new(RefCell::new(0));
+    }
+    );
     #[test]
     fn tests() {
-        let mut thre = ThreadPool::new(2, 3, 5);
-
-        let mut vc = Vec::<Future>::new();
-        for i in 0..10 {
-            let efef = thre.executor(|| {
-                println!("aaaaaaaa");
 
 
-            });
-            vc.push(efef);
+        unsafe {
+
+            let lock = (*CORS_THREAD).lock().unwrap();
+            let mut thread_size = lock.borrow_mut();
+            (*thread_size) = ((*thread_size) + 8);
+
+            println!("{}", (*thread_size))
+
         }
 
-        println!("LLLLLLLLLLLLLLLLLLL");
+        unsafe {
 
-        vc.into_iter().map(|x| {
-            x.get();
-        }).count();
+            let lock = (*CORS_THREAD).lock().unwrap();
+            let mut thread_size = lock.borrow_mut();
 
+            println!("{}", (*thread_size))
 
-
+        }
 
     }
 }

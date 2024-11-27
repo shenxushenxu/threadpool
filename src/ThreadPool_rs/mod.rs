@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{mpsc, Arc, LazyLock, Mutex};
+use std::thread;
 
 mod Executor_rs;
 mod Message_rs;
@@ -11,16 +12,10 @@ use Message_rs::Message;
 use Future_rs::Future;
 
 
-static mut CORS_THREAD: LazyLock<Mutex<RefCell<usize>>> = std::sync::LazyLock::new(|| {
-    return Mutex::new(RefCell::new(0));
-}
-);
-
+static mut CORS_THREAD: Mutex<usize> = Mutex::new(0);
+static mut NON_CORE_THREAD: Mutex<usize> = Mutex::new(0);
 pub struct ThreadPool {
-    sync_sender: SyncSender<Message>,
-
-    arc_mutex_receiver: Arc<Mutex<Receiver<Message>>>,
-
+    sync_sender: Sender<Message>,
     core_pool_size: usize,
     maximum_pool_size: usize,
     keep_alive_time: usize,
@@ -30,7 +25,7 @@ type Job = Box<dyn Fn() + Send + 'static>;
 
 impl ThreadPool {
     pub fn new(core_pool_size: usize, maximum_pool_size: usize, keep_alive_time: usize) -> Self {
-        let (sync_sender, receiver) = mpsc::sync_channel::<Message>(keep_alive_time);
+        let (sync_sender, receiver) = mpsc::channel::<Message>();
 
         let arc_mutex_receiver = Arc::new(Mutex::new(receiver));
 
@@ -42,9 +37,61 @@ impl ThreadPool {
         }
 
 
+        thread::spawn(move || {
+            loop {
+                unsafe {
+                    let mut thread_size = CORS_THREAD.lock().unwrap();
+                    let mut non_thread_size = NON_CORE_THREAD.lock().unwrap();
+
+                    if (*thread_size) > core_pool_size && (*non_thread_size) < (maximum_pool_size - core_pool_size) {
+
+                        drop(thread_size);
+
+                        let non_receiver = Arc::clone(&arc_mutex_receiver);
+
+                        // Executor::new_thread(Arc::clone(&arc_mutex_receiver));
+                        let mute = non_receiver.try_lock();
+                        match mute{
+                            Ok(rece) => {
+                                match rece.try_recv() {
+                                    Ok(message) => {
+
+                                        drop(rece);
+
+                                        match message {
+                                            Message::Mess_job((closure, sender)) => {
+                                                println!("非核心线程.........");
+                                                thread::spawn(move || {
+                                                    closure();
+                                                    sender.send(String::from("end")).unwrap();
+                                                    unsafe {
+                                                        let mut thread_size = CORS_THREAD.lock().unwrap();
+                                                        (*thread_size) = ((*thread_size) - 1);
+
+                                                        let mut non_thread_size = NON_CORE_THREAD.lock().unwrap();
+                                                        (*non_thread_size) = (*non_thread_size) - 1;
+
+                                                    }
+                                                });
+                                            },
+
+                                            Message::Break => {break}
+                                        }
+                                    },
+
+                                    Err(e) => ()
+                                }
+                            },
+                            Err(e) => ()
+                        }
+                        (*non_thread_size) += 1;
+                    }
+                }
+            }
+        });
+
         return ThreadPool {
             sync_sender: sync_sender,
-            arc_mutex_receiver: arc_mutex_receiver,
             core_pool_size: core_pool_size,
             maximum_pool_size: maximum_pool_size,
             keep_alive_time: keep_alive_time,
@@ -56,35 +103,36 @@ impl ThreadPool {
     where
         F: Fn() + Send + 'static,
     {
-
         unsafe {
-
-            let lock = (*CORS_THREAD).lock().unwrap();
-            let mut thread_size = lock.borrow_mut();
+            let mut thread_size = CORS_THREAD.lock().unwrap();
 
 
             let (sender, receiver) = mpsc::channel::<String>();
 
             self.sync_sender.send(Message::Mess_job((Box::new(closure), sender))).unwrap();
+            let future = Future { receiver: receiver };
 
-            let future = Future {receiver:receiver};
 
             *thread_size = (*thread_size) + 1;
-
-            if (*thread_size) >= self.core_pool_size && (*thread_size) <= self.maximum_pool_size {
-                Executor::new_thread(Arc::clone(&self.arc_mutex_receiver));
-
-                *thread_size = (*thread_size) + 1;
-            }
-
-
-
             return future;
-
         }
     }
+
+
+    pub fn shutdown(&self){
+        for _ in 0..(self.core_pool_size+1) {
+            self.sync_sender.send(Message::Break).unwrap();
+        }
+    }
+
+
 }
 
 impl Drop for ThreadPool {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        for _ in 0..(self.core_pool_size+1) {
+            self.sync_sender.send(Message::Break).unwrap();
+
+        }
+    }
 }

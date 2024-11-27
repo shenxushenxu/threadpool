@@ -4,6 +4,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use crate::ThreadPool_rs::Message_rs::Message;
 use crate::ThreadPool_rs::CORS_THREAD;
+use crate::ThreadPool_rs::NON_CORE_THREAD;
 
 
 pub struct Executor {
@@ -13,22 +14,35 @@ impl Executor {
     pub fn new(clone_receiver: Arc<Mutex<Receiver<Message>>>) -> Self {
         let head = thread::spawn(move || {
             loop {
-                let mess = clone_receiver.lock().unwrap().recv().unwrap();
-                match mess {
-                    Message::Mess_job((closure, sender)) => {
-                        closure();
-                        sender.send(String::from("end")).unwrap();
+                let receiver = clone_receiver.lock();
+                match receiver {
+                    Ok(rece)=>{
+                        let mess = rece.recv();
+                        if let Ok(me) = mess  {
+                            match me {
+                                Message::Mess_job((closure, sender)) => {
 
-                        unsafe {
-                            let lock = (*CORS_THREAD).lock().unwrap();
-                            let mut thread_size = lock.borrow_mut();
-                            (*thread_size) = ((*thread_size) - 1);
+                                    drop(rece);
+
+
+                                    closure();
+                                    sender.send(String::from("end")).unwrap();
+
+                                    unsafe {
+                                        let mut thread_size = CORS_THREAD.lock().unwrap();
+                                        (*thread_size) = ((*thread_size) - 1);
+                                    }
+                                }
+                                Message::Break => {
+                                    break;
+                                }
+                            }
                         }
-                    }
-                    Message::Break => {
-                        break;
-                    }
+
+                    },
+                    Err(e) => ()
                 }
+
             }
         });
 
@@ -36,24 +50,41 @@ impl Executor {
     }
 
     pub fn new_thread(receiver: Arc<Mutex<Receiver<Message>>>){
-        match receiver.lock().unwrap().try_recv() {
-            Ok(message) => {
-                match message {
-                    Message::Mess_job((closure, sender)) => {
-                        thread::spawn(move || {
-                            closure();
-                            sender.send(String::from("end")).unwrap();
-                            unsafe {
-                                let lock = (*CORS_THREAD).lock().unwrap();
-                                let mut thread_size = lock.borrow_mut();
-                                (*thread_size) = ((*thread_size) - 1);
+        let mute = receiver.try_lock();
+            match mute{
+                Ok(rece) => {
+                    match rece.try_recv() {
+                        Ok(message) => {
+
+                            drop(rece);
+
+                            match message {
+                                Message::Mess_job((closure, sender)) => {
+                                    println!("非核心线程.........");
+                                    thread::spawn(move || {
+                                        closure();
+                                        sender.send(String::from("end")).unwrap();
+                                        unsafe {
+                                            let mut thread_size = CORS_THREAD.lock().unwrap();
+                                            (*thread_size) = ((*thread_size) - 1);
+
+                                            let mut non_thread_size = NON_CORE_THREAD.lock().unwrap();
+                                            (*non_thread_size) = (*non_thread_size) - 1;
+
+                                        }
+                                    });
+                                },
+
+                                Message::Break => {}
                             }
-                        });
+                        },
+
+                        Err(e) => ()
                     }
-                    Message::Break => {}
-                }
+                },
+                Err(e) => ()
             }
-            Err(e) => ()
-        }
+
+
     }
 }
