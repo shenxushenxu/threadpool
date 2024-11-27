@@ -60,7 +60,6 @@ impl Executor {
 
                             match message {
                                 Message::Mess_job((closure, sender)) => {
-                                    println!("非核心线程.........");
                                     thread::spawn(move || {
                                         closure();
                                         sender.send(String::from("end")).unwrap();
